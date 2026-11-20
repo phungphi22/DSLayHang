@@ -1,161 +1,150 @@
-<?php
-/*
-* 2007-2014 PrestaShop
-*
-* NOTICE OF LICENSE
-*
-* This source file is subject to the Academic Free License (AFL 3.0)
-* that is bundled with this package in the file LICENSE.txt.
-* It is also available through the world-wide-web at this URL:
-* http://opensource.org/licenses/afl-3.0.php
-* If you did not receive a copy of the license and are unable to
-* obtain it through the world-wide-web, please send an email
-* to license@prestashop.com so we can send you a copy immediately.
-*
-* DISCLAIMER
-*
-* Do not edit or add to this file if you wish to upgrade PrestaShop to newer
-* versions in the future. If you wish to customize PrestaShop for your
-* needs please refer to http://www.prestashop.com for more information.
-*
-*  @author PrestaShop SA <contact@prestashop.com>
-*  @copyright  2007-2014 PrestaShop SA
-*  @license    http://opensource.org/licenses/afl-3.0.php  Academic Free License (AFL 3.0)
-*  International Registered Trademark & Property of PrestaShop SA
-*/
-
-if (!defined('_PS_VERSION_'))
-	exit;
-
-class stats_Import_List extends Module
-{
-	private $html = '';
-
-	public function __construct()
-	{
-		$this->name = 'stats_Import_List';
-		$this->tab = 'analytics_stats';
-		$this->version = '1.3';
-		$this->author = 'dungnt';
-		$this->need_instance = 0;
-
-		parent::__construct();
-
-		$this->displayName = $this->l('N80 - Danh sách lấy hàng');
-		$this->description = 'Thống kê lượng hàng cần lấy theo đon. Sau khi lấy thì phải addstock.';
-		$this->ps_versions_compliancy = array('min' => '1.6', 'max' => _PS_VERSION_);
-	}
-
-	public function install()
-	{
-		return parent::install() && $this->registerHook('AdminStatsModules');
-	}
-
-	public function hookAdminStatsModules()
-	{
-		if (Tools::isSubmit('submitCategory'))
-			$this->context->cookie->statsstock_id_category = Tools::getValue('statsstock_id_category');
-
-		$ru = AdminController::$currentIndex.'&module='.$this->name.'&token='.Tools::getValue('token');
-		$currency = new Currency(Configuration::get('PS_CURRENCY_DEFAULT'));
-		$filter = ((int)$this->context->cookie->statsstock_id_category ? ' AND p.id_product IN (SELECT cp.id_product FROM '._DB_PREFIX_.'category_product cp WHERE cp.id_category = '.(int)$this->context->cookie->statsstock_id_category.')' : '');
-		/* $sql = 'SELECT p.id_product, p.reference, pl.name,
-				IFNULL((
-					SELECT AVG(product_attribute_shop.wholesale_price)
-					FROM '._DB_PREFIX_.'product_attribute pa
-					'.Shop::addSqlAssociation('product_attribute', 'pa').'
-					WHERE p.id_product = pa.id_product
-					AND product_attribute_shop.wholesale_price != 0
-				), product_shop.wholesale_price) as wholesale_price,
-				IFNULL(stock.quantity, 0) as quantity
-				FROM '._DB_PREFIX_.'product p
-				'.Shop::addSqlAssociation('product', 'p').'
-				INNER JOIN '._DB_PREFIX_.'product_lang pl
-					ON (p.id_product = pl.id_product AND pl.id_lang = '.(int)$this->context->language->id.Shop::addSqlRestrictionOnLang('pl').')
-				'.Product::sqlStock('p', 0).'
-				WHERE 1 = 1  and stock.quantity < 0
-				'.$filter; */				$sql = 'SELECT p.id_product, p.reference, pl.name,				IFNULL((					SELECT AVG(product_attribute_shop.wholesale_price)					FROM '._DB_PREFIX_.'product_attribute pa					'.Shop::addSqlAssociation('product_attribute', 'pa').'					WHERE p.id_product = pa.id_product					AND product_attribute_shop.wholesale_price != 0				), product_shop.wholesale_price) as wholesale_price,				IFNULL(stock.quantity, 0) as quantity				FROM '._DB_PREFIX_.'product p				'.Shop::addSqlAssociation('product', 'p').'				INNER JOIN '._DB_PREFIX_.'product_lang pl					ON (p.id_product = pl.id_product AND pl.id_lang = 2)				'.Product::sqlStock('p', 0).'				WHERE 1 = 1  and stock.quantity < 0				'.$filter;
-		$products = Db::getInstance()->executeS($sql);
-
-		foreach ($products as $key => $p)
-			$products[$key]['stockvalue'] = $p['wholesale_price'] * $p['quantity'];
-
-		$this->html .= '
-		<script type="text/javascript">$(\'#calendar\').slideToggle();</script>
-
-		<div class="panel-heading">'
-			.$this->l('Danh sách hàng cần phải lấy theo đơn').
-		'</div>
-		<form action="'.$ru.'" method="post" class="form-horizontal">
-			<div class="row row-margin-bottom">
-				<label class="control-label col-lg-3">'.$this->l('Nhóm hàng').'</label>
-				<div class="col-lg-6">
-					<select name="statsstock_id_category" onchange="this.form.submit();">
-						<option value="0">- '.$this->l('Tất cả').' -</option>';
-				foreach (Category::getSimpleCategories($this->context->language->id) as $category)
-					$this->html .= '<option value="'.(int)$category['id_category'].'" '.
-						($this->context->cookie->statsstock_id_category == $category['id_category'] ? 'selected="selected"' : '').'>'.
-						$category['name'].'
-					</option>';
-		$this->html .= '
-					</select>
-					<input type="hidden" name="submitCategory" value="1" />
-				</div>
-			</div>
-		</form>';
-
-		if (!count($products))
-			$this->html .= '<p>'.$this->l('Ko có số liệu.').'</p>';
-		else
-		{
-			$rollup = array('quantity' => 0, 'wholesale_price' => 0, 'stockvalue' => 0);
-			$this->html .= '
-			<table class="table">
-				<thead>
-					<tr>
-						<th><span class="title_box active">'.$this->l('ID Hàng').'</span></th>
-						<th><span class="title_box active">'.$this->l('Ref.').'</span></th>
-						<th><span class="title_box active">'.$this->l('Tên hàng').'</span></th>
-						<th><span class="title_box active">'.$this->l('Số còn thiếu').'</span></th>
-						<th><span class="title_box active">'.$this->l('Giá nhập*').'</span></th>
-						<th><span class="title_box active">'.$this->l('Thành tiền').'</span></th>
-					</tr>
-				</thead>
-				<tbody>';
-				foreach ($products as $product)
-				{
-					$rollup['quantity'] += $product['quantity'];
-					$rollup['wholesale_price'] += $product['wholesale_price'];
-					$rollup['stockvalue'] += $product['stockvalue'];
-					$this->html .= '<tr>
-						<td>'.$product['id_product'].'</td>
-						<td>'.$product['reference'].'</td>
-						<td>'.$product['name'].'</td>
-						<td>'.$product['quantity'].'</td>
-						<td>'.Tools::displayPrice($product['wholesale_price'], $currency).'</td>
-						<td>'.Tools::displayPrice($product['stockvalue'], $currency).'</td>
-					</tr>';
-				}
-				$this->html .= '
-				</tbody>
-				<tfoot>
-					<tr>
-						<th colspan="3"></th>
-						<th><span class="title_box active">'.$this->l('').'</span></th>
-						<th><span class="title_box active">'.$this->l('').'</span></th>
-						<th><span class="title_box active">'.$this->l('Tổng tiền').'</span></th>
-					</tr>
-					<tr>
-						<td colspan="3"></td>
-						<td></td>
-						<td></td>
-						<td>'.Tools::displayPrice($rollup['stockvalue'], $currency).'</td>
-					</tr>
-				</tfoot>
-			</table>
-			<i class="icon-asterisk"></i> '.$this->l('This section corresponds to the default wholesale price according to the default supplier for the product. An average price is used when the product has attributes.');//.'== SQL :'.$sql;
-
-			return $this->html;
-		}
-	}
-}
+<?php
+if (!defined('_PS_VERSION_'))
+    exit;
+
+class stats_Import_List extends Module
+{
+    private $html = '';
+
+    public function __construct()
+    {
+        $this->name = 'stats_Import_List';
+        $this->tab = 'analytics_stats';
+        $this->version = '1.4';
+        $this->author = 'dungnt';
+        $this->need_instance = 0;
+        parent::__construct();
+        $this->displayName = $this->l('N80 - Danh sách lấy hàng');
+        $this->description = 'Thống kê lượng hàng cần lấy theo đơn. Sau khi lấy thì phải addstock.';
+        $this->ps_versions_compliancy = array('min' => '1.6', 'max' => _PS_VERSION_);
+    }
+
+    public function install()
+    {
+        return parent::install() && $this->registerHook('AdminStatsModules');
+    }
+
+    public function hookAdminStatsModules()
+    {
+        $this->html = '';
+        $currency = new Currency((int)Configuration::get('PS_CURRENCY_DEFAULT'));
+
+        // Pagination: 10 products per page. Keep page input within a safe range.
+        $perPage = 10;
+        $page = (int)Tools::getValue('statsstock_page', 1);
+        if ($page < 1)
+            $page = 1;
+        $offset = ($page - 1) * $perPage;
+
+        // Keep the core PrestaShop stock helper, which derives product stock
+        // from ps_stock_available and handles combinations/shop context.
+        // Purchase price: latest supply-order unit price for this product.
+        $sqlFrom = '
+            FROM '._DB_PREFIX_.'product p
+            '.Shop::addSqlAssociation('product', 'p').'
+            INNER JOIN '._DB_PREFIX_.'product_lang pl
+                ON (p.id_product = pl.id_product
+                    AND pl.id_lang = '.(int)$this->context->language->id.'
+                    '.Shop::addSqlRestrictionOnLang('pl').')
+            '.Product::sqlStock('p', 0).'
+            WHERE stock.quantity < 0';
+
+        $sqlPrice = '(
+            SELECT sod.unit_price_te
+            FROM '._DB_PREFIX_.'supply_order_detail sod
+            INNER JOIN '._DB_PREFIX_.'supply_order so
+                ON so.id_supply_order = sod.id_supply_order
+            WHERE sod.id_product = p.id_product
+            ORDER BY so.date_add DESC, sod.id_supply_order_detail DESC
+            LIMIT 1
+        )';
+
+        $sqlSelect = 'SELECT p.id_product, p.reference, pl.name,
+            IFNULL('.$sqlPrice.', product_shop.wholesale_price) AS purchase_price,
+            stock.quantity AS quantity
+            '.$sqlFrom;
+
+        // Calculate record count and total over ALL matching products,
+        // independently of the current page.
+        $totalRows = (int)Db::getInstance()->getValue(
+            'SELECT COUNT(*) '.$sqlFrom
+        );
+
+        $totalValue = (float)Db::getInstance()->getValue(
+            'SELECT SUM(quantity * IFNULL('.$sqlPrice.', product_shop.wholesale_price)) '.$sqlFrom
+        );
+
+        $totalPages = (int)ceil($totalRows / $perPage);
+        if ($totalPages > 0 && $page > $totalPages) {
+            $page = $totalPages;
+            $offset = ($page - 1) * $perPage;
+        }
+
+        $products = Db::getInstance()->executeS(
+            $sqlSelect.'
+            ORDER BY p.id_product ASC
+            LIMIT '.(int)$offset.', '.(int)$perPage
+        );
+
+        $ru = AdminController::$currentIndex.'&module='.$this->name
+            .'&token='.Tools::getValue('token');
+
+        $this->html .= '
+            <script type="text/javascript">$(\'#calendar\').slideToggle();</script>
+            <div class="panel-heading">'.$this->l('Danh sách hàng cần phải lấy theo đơn').'</div>';
+
+        if (!$products) {
+            $this->html .= '<p>'.$this->l('Ko có số liệu.').'</p>';
+            return $this->html;
+        }
+
+        $this->html .= '
+            <table class="table">
+                <thead><tr>
+                    <th>'.$this->l('ID product').'</th>
+                    <th>'.$this->l('Product name').'</th>
+                    <th>'.$this->l('Số còn thiếu').'</th>
+                    <th>'.$this->l('Giá nhập').'</th>
+                    <th>'.$this->l('Thành tiền').'</th>
+                </tr></thead><tbody>';
+
+        foreach ($products as $product) {
+            $purchasePrice = (float)$product['purchase_price'];
+            $quantity = (int)$product['quantity'];
+            $stockValue = $quantity * $purchasePrice;
+
+            $this->html .= '<tr>
+                <td>'.(int)$product['id_product'].'</td>
+                <td>'.Tools::safeOutput($product['name']).'</td>
+                <td>'.$quantity.'</td>
+                <td>'.Tools::displayPrice($purchasePrice, $currency).'</td>
+                <td>'.Tools::displayPrice($stockValue, $currency).'</td>
+            </tr>';
+        }
+
+        $this->html .= '</tbody>
+            <tfoot><tr>
+                <th colspan="4">'.$this->l('Tổng cộng').'</th>
+                <th>'.Tools::displayPrice($totalValue, $currency).'</th>
+            </tr></tfoot>
+            </table>';
+
+        // Use the AdminStatsModules URL and token already provided by PrestaShop.
+        if ($totalPages > 1) {
+            $this->html .= '<div class="pagination">';
+            $this->html .= '<span>'.$this->l('Trang').' '.$page.' / '.$totalPages.'</span> ';
+
+            if ($page > 1) {
+                $this->html .= '<a class="btn btn-default" href="'.Tools::safeOutput($ru.'&statsstock_page='.($page - 1)).'">'
+                    .$this->l('Trang trước').'</a> ';
+            }
+            if ($page < $totalPages) {
+                $this->html .= '<a class="btn btn-default" href="'.Tools::safeOutput($ru.'&statsstock_page='.($page + 1)).'">'
+                    .$this->l('Trang sau').'</a>';
+            }
+            $this->html .= '</div>';
+        }
+
+        return $this->html;
+    }
+}
