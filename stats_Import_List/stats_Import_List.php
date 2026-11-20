@@ -29,7 +29,7 @@ class stats_Import_List extends Module
         $this->html = '';
         $currency = new Currency((int)Configuration::get('PS_CURRENCY_DEFAULT'));
 
-        // Pagination: 10 products per page. Keep page input within a safe range.
+        // Pagination: 20 products per page. Keep page input within a safe range.
         $perPage = 10;
         $page = (int)Tools::getValue('statsstock_page', 1);
         if ($page < 1)
@@ -71,7 +71,7 @@ class stats_Import_List extends Module
         );
 
         $totalValue = (float)Db::getInstance()->getValue(
-            'SELECT SUM(quantity * IFNULL('.$sqlPrice.', product_shop.wholesale_price)) '.$sqlFrom
+            'SELECT SUM(ABS(stock.quantity) * IFNULL('.$sqlPrice.', product_shop.wholesale_price)) '.$sqlFrom
         );
 
         $totalPages = (int)ceil($totalRows / $perPage);
@@ -111,7 +111,7 @@ class stats_Import_List extends Module
         foreach ($products as $product) {
             $purchasePrice = (float)$product['purchase_price'];
             $quantity = (int)$product['quantity'];
-            $stockValue = $quantity * $purchasePrice;
+            $stockValue = abs($quantity) * $purchasePrice;
 
             $this->html .= '<tr>
                 <td>'.(int)$product['id_product'].'</td>
